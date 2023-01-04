@@ -983,8 +983,8 @@ class Epub:
         for template, dst in self.__images.values():
             images.append((_os.path.abspath(template), dst))
 
-        if not os.path.isdir(dstdir):
-            os.makedirs(dstdir, exist_ok=True)
+        if not _os.path.isdir(dstdir):
+            _os.makedirs(dstdir, exist_ok=True)
 
         _os.chdir(dstdir)
         if _os.path.exists(dir):
