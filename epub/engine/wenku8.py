@@ -4,6 +4,18 @@ from ._utils import *
 import urllib
 from tqdm import tqdm
 from bs4 import BeautifulSoup
+from bs4.element import Tag as _Tag
+
+def _login(username, password):
+    link = 'https://www.wenku8.net/login.php?do=submit'
+    payload = {
+        'username': username,
+        'password': password,
+        'usecookie': '0',
+        'action': 'login',
+    }
+    res = requests.post(link, data=payload, files=[])
+    return res.cookies.get_dict()
 
 def grab(postfix, reverse=False, skip=True, path='out_wenku8', **kwargs):
     prefix = postfix // 1000
@@ -114,14 +126,20 @@ def grab(postfix, reverse=False, skip=True, path='out_wenku8', **kwargs):
             _epub.add_cover_page('cover', '', Page.cover(cover_dst, 'cover.html', _epub.metadata, ''))
         _epub.generate(epub_file, remove=True, path=path)
 
-def search(title, page=1):
+def search(title, page=1, *, username=None, password=None, **kwargs):
     encoding = 'GB18030'
-    quoted_title = urllib.parse.quote(title)
+    quoted_title = urllib.parse.quote(title, encoding=encoding)
     if not isinstance(page, int) or page < 1:
         page = 1
     link = f'https://www.wenku8.net/modules/article/search.php?searchtype=articlename&searchkey={quoted_title}&page={page}'
 
-    page_response = requests.get(link, allow_redirects=False)
+    headers = {}
+    if username and password:
+        login_cookies = _login(username, password)
+        login_cookies_str = ''.join(map(lambda x: f'{x[0]}={x[1]};', login_cookies.items()))
+        headers['Cookie'] = login_cookies_str
+
+    page_response = requests.get(link, allow_redirects=False, headers=headers)
     if page_response.is_redirect:
         next_url = page_response.next.url
         m = re.search(r'book/([0-9]+).htm', next_url)
@@ -146,7 +164,7 @@ def search(title, page=1):
             title = title_tag.text
 
             author_tag = book_info_tag.find('table', width='100%', border='0', cellspacing='0', cellpadding='3') \
-                            .find('tbody').find_all('td', width='20%')[1]
+                            .find_all('tr')[-1].find_all('td', width='20%')[1]
             author = author_tag.text
 
             cover_tag = book_info_tag.find('img')
@@ -196,6 +214,8 @@ def search(title, page=1):
 
     items = []
     for item_tag in item_tags:
+        if not isinstance(item_tag, _Tag):
+            continue
         info_tag = item_tag.find('div', style='margin-top:2px;')
         title_tag = info_tag.find('a', style='font-size:13px;')
         title = title_tag.text

@@ -224,9 +224,9 @@ def grab(postfix, reverse=False, skip=True, path='out_linovelib', **kwargs):
             _epub.add_cover_page('cover', '', Page.cover(cover_dst, 'cover.html', _epub.metadata, ''))
         _epub.generate(epub_file, remove=True, path=path)
 
-def search(title, page=1):
+def search(title, page=1, **kwargs):
     encoding = 'utf8'
-    quoted_title = urllib.parse.quote(title)
+    quoted_title = urllib.parse.quote(title, encoding=encoding)
     if not isinstance(page, int) or page < 1:
         page = 1
     #link = f'https://w.linovelib.com/S8/{quoted_title}_{page}.html'
