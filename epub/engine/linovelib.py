@@ -162,20 +162,23 @@ def grab(postfix, reverse=False, skip=True, path='out_linovelib', **kwargs):
         chapters.append((_chapter_name, _chapter_buf))
 
     _chapters = []
-    for index, data in enumerate(reversed(chapters)):
-        if skip:
-            _skip = index != 0
+    first_exists = False
+    for chapter_name, chapter_pages in reversed(chapters):
+        epub_file = file_escape(f'{title} {chapter_name}')
+        file_exists = os.path.isfile(f'{path}/{epub_file}.epub')
+        if skip and file_exists:
+            # To update the last existing book discovered
+            _skip = first_exists
+            first_exists = True
         else:
             _skip = False
-        _chapters.append((_skip, *data))
+        _chapters.append((_skip, file_exists, epub_file, chapter_name, chapter_pages))
 
     if not reverse:
         _chapters = reversed(_chapters)
 
-    for _skip, chapter_name, chapter_pages in _chapters:
-        epub_file = file_escape(f'{title} {chapter_name}')
-        overwrite = os.path.isfile(f'{path}/{epub_file}.epub')
-        if _skip and overwrite:
+    for _skip, overwrite, epub_file, chapter_name, chapter_pages in _chapters:
+        if _skip:
             continue
         contents = []
         images = []

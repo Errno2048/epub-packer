@@ -52,20 +52,23 @@ def grab(postfix, reverse=False, skip=True, path='out_wenku8', **kwargs):
         books.append((cur_title, cur_book))
 
     _books = []
-    for index, (cur_title, cur_book) in enumerate(reversed(books)):
-        if skip:
-            _skip = index != 0
+    first_exists = False
+    for cur_title, cur_book in reversed(books):
+        epub_file = file_escape(cur_title)
+        file_exists = os.path.isfile(f'{path}/{epub_file}.epub')
+        if skip and file_exists:
+            # To update the last existing book discovered
+            _skip = first_exists
+            first_exists = True
         else:
             _skip = False
-        _books.append((_skip, cur_title, cur_book))
+        _books.append((_skip, file_exists, epub_file, cur_title, cur_book))
 
     if not reverse:
         _books = reversed(_books)
 
-    for _skip, title, book in _books:
-        epub_file = file_escape(title)
-        overwrite = os.path.isfile(f'{path}/{epub_file}.epub')
-        if _skip and overwrite:
+    for _skip, overwrite, epub_file, title, book in _books:
+        if _skip:
             continue
         contents = []
         images = []
