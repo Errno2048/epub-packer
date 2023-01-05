@@ -5,6 +5,20 @@ import urllib
 from tqdm import tqdm
 from bs4 import BeautifulSoup
 
+_DEFAULT_ENCODING = 'UTF-8'
+
+def login(username, password):
+    link = 'https://w.linovelib.com/login.php?do=submit'
+    payload = {
+        'username': username,
+        'password': password,
+        'usecookie': '86400',
+        'act': 'login',
+        'submit': '',
+    }
+    res = requests.post(link, data=payload, files=[])
+    return res.cookies.get_dict()
+
 def _get_image_url(raw_link):
     parse_res = list(urllib.parse.urlparse(raw_link))
     if not parse_res[0]:
@@ -13,13 +27,11 @@ def _get_image_url(raw_link):
         parse_res[1] = 'img.linovelib.com'
     return urllib.parse.urlunparse(parse_res)
 
-
 def _read_metadata_item(metadata, name):
     item = re.search(f'{name}:\'([^\']*)\'', metadata)
     if item:
         return item.group(1)
     return None
-
 
 def _read_metadata(metadata):
     url_previous = _read_metadata_item(metadata, 'url_previous')
@@ -33,8 +45,7 @@ def _read_metadata(metadata):
         'page': page,
     }
 
-
-def _get_one_page(link, encoding='utf8'):
+def _get_one_page(link, encoding='UTF-8'):
     page_str = requests_get(f'https://w.linovelib.com{link}')
     if page_str is None:
         raise Exception(f'Getting page failed: {link}')
@@ -56,8 +67,7 @@ def _get_one_page(link, encoding='utf8'):
     content_tag.attrs.clear()
     return content_tag, metadata
 
-
-def _get_page(link, encoding='utf8'):
+def _get_page(link, encoding='UTF-8'):
     contents = []
     image_tags = []
     content_tag, metadata = _get_one_page(link, encoding=encoding)
@@ -78,8 +88,7 @@ def _get_page(link, encoding='utf8'):
         metadata = next_metadata
     return contents, image_tags, next_url
 
-
-def _get_prev_page_link(link, hop=1, encoding='utf8'):
+def _get_prev_page_link(link, hop=1, encoding='UTF-8'):
     content_tag, metadata = _get_one_page(link, encoding=encoding)
     searched = 0
     while True:
@@ -95,10 +104,9 @@ def _get_prev_page_link(link, hop=1, encoding='utf8'):
                 break
     return prev_link
 
-
 def grab(postfix, reverse=False, skip=True, path='out_linovelib', **kwargs):
     web_src = f'https://w.linovelib.com/novel/{postfix}/catalog'
-    encoding = 'utf8'
+    encoding = _DEFAULT_ENCODING
 
     mainpage_str = requests_get(web_src)
     if mainpage_str is None:
@@ -227,15 +235,21 @@ def grab(postfix, reverse=False, skip=True, path='out_linovelib', **kwargs):
             _epub.add_cover_page('cover', '', Page.cover(cover_dst, 'cover.html', _epub.metadata, ''))
         _epub.generate(epub_file, remove=True, path=path)
 
-def search(title, page=1, **kwargs):
-    encoding = 'utf8'
+def search(title, page=1, *, username=None, password=None, **kwargs):
+    encoding = _DEFAULT_ENCODING
     quoted_title = urllib.parse.quote(title, encoding=encoding)
     if not isinstance(page, int) or page < 1:
         page = 1
     #link = f'https://w.linovelib.com/S8/{quoted_title}_{page}.html'
     link = f'https://w.linovelib.com/S8/?searchkey={quoted_title}&searchtype=all&page={page}'
 
-    page_response = requests.get(link, allow_redirects=False)
+    headers = HEADERS.copy()
+    if username and password:
+        login_cookies = login(username, password)
+        login_cookies_str = ''.join(map(lambda x: f'{x[0]}={x[1]};', login_cookies.items()))
+        headers['Cookie'] = login_cookies_str
+
+    page_response = requests.get(link, allow_redirects=False, headers=headers)
     if page_response.is_redirect:
         next_url = page_response.next.url
         m = re.search(r'novel/([0-9]+).html', next_url)

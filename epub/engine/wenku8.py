@@ -6,7 +6,9 @@ from tqdm import tqdm
 from bs4 import BeautifulSoup
 from bs4.element import Tag as _Tag
 
-def _login(username, password):
+_DEFAULT_ENCODING = 'GB18030'
+
+def login(username, password):
     link = 'https://www.wenku8.net/login.php?do=submit'
     payload = {
         'username': username,
@@ -20,7 +22,7 @@ def _login(username, password):
 def grab(postfix, reverse=False, skip=True, path='out_wenku8', **kwargs):
     prefix = postfix // 1000
     web_src = f'https://www.wenku8.net/novel/{prefix}/{postfix}/'
-    encoding = 'GB18030'
+    encoding = _DEFAULT_ENCODING
 
     mainpage_str = requests_get(web_src)
     if mainpage_str is None:
@@ -130,15 +132,15 @@ def grab(postfix, reverse=False, skip=True, path='out_wenku8', **kwargs):
         _epub.generate(epub_file, remove=True, path=path)
 
 def search(title, page=1, *, username=None, password=None, **kwargs):
-    encoding = 'GB18030'
+    encoding = _DEFAULT_ENCODING
     quoted_title = urllib.parse.quote(title, encoding=encoding)
     if not isinstance(page, int) or page < 1:
         page = 1
     link = f'https://www.wenku8.net/modules/article/search.php?searchtype=articlename&searchkey={quoted_title}&page={page}'
 
-    headers = {}
+    headers = HEADERS.copy()
     if username and password:
-        login_cookies = _login(username, password)
+        login_cookies = login(username, password)
         login_cookies_str = ''.join(map(lambda x: f'{x[0]}={x[1]};', login_cookies.items()))
         headers['Cookie'] = login_cookies_str
 
