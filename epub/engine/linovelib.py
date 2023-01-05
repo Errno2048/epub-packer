@@ -1,35 +1,9 @@
-import epub
+from .. import *
+from ._utils import *
 
 import urllib
-import os
-import requests
-import re
 from tqdm import tqdm
 from bs4 import BeautifulSoup
-
-def file_escape(s):
-    return re.sub(r'[\t:/\\*?<>|"\']', r'_', s)
-
-def ext(path: str) -> str:
-    rf = path.rfind(os.extsep)
-    if rf >= 0:
-        return path[rf + 1:]
-    return ""
-
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36 Edg/99.0.1150.30'}
-
-def requests_get(url, retry=10):
-    count = 0
-    while count < retry:
-        try:
-            res = requests.get(url, headers=HEADERS, data={})
-            if res.status_code >= 200 and res.status_code < 300:
-                return res.content
-        except Exception as e:
-            print(e)
-            pass
-        count += 1
-    return None
 
 def _get_image_url(raw_link):
     parse_res = list(urllib.parse.urlparse(raw_link))
@@ -39,11 +13,13 @@ def _get_image_url(raw_link):
         parse_res[1] = 'img.linovelib.com'
     return urllib.parse.urlunparse(parse_res)
 
+
 def _read_metadata_item(metadata, name):
     item = re.search(f'{name}:\'([^\']*)\'', metadata)
     if item:
         return item.group(1)
     return None
+
 
 def _read_metadata(metadata):
     url_previous = _read_metadata_item(metadata, 'url_previous')
@@ -56,6 +32,7 @@ def _read_metadata(metadata):
         'chapterid': chapterid,
         'page': page,
     }
+
 
 def _get_one_page(link, encoding='utf8'):
     page_str = requests_get(f'https://w.linovelib.com{link}')
@@ -79,6 +56,7 @@ def _get_one_page(link, encoding='utf8'):
     content_tag.attrs.clear()
     return content_tag, metadata
 
+
 def _get_page(link, encoding='utf8'):
     contents = []
     image_tags = []
@@ -98,8 +76,8 @@ def _get_page(link, encoding='utf8'):
         image_tags.extend(_image_tags)
         contents.append(next_content_tag)
         metadata = next_metadata
-    contents_str = ''.join(map(str, contents))
-    return contents_str, image_tags, next_url
+    return contents, image_tags, next_url
+
 
 def _get_prev_page_link(link, hop=1, encoding='utf8'):
     content_tag, metadata = _get_one_page(link, encoding=encoding)
@@ -117,7 +95,8 @@ def _get_prev_page_link(link, hop=1, encoding='utf8'):
                 break
     return prev_link
 
-def grab(postfix, reverse=False, skip=True, path='out_linovelib'):
+
+def grab(postfix, reverse=False, skip=True, path='out_linovelib', **kwargs):
     web_src = f'https://w.linovelib.com/novel/{postfix}/catalog'
     encoding = 'utf8'
 
@@ -151,7 +130,8 @@ def grab(postfix, reverse=False, skip=True, path='out_linovelib'):
                     next_not_none_index = none_count + 1
                     if next_not_none_index >= len(_chapter_buf):
                         raise Exception(f'Invalid links for chapter {_chapter_name}')
-                    href = _get_prev_page_link(_chapter_buf[next_not_none_index][1], hop=next_not_none_index, encoding=encoding)
+                    href = _get_prev_page_link(_chapter_buf[next_not_none_index][1], hop=next_not_none_index,
+                                               encoding=encoding)
                     _chapter_buf[0] = (name, href, none_count)
                 chapters.append((_chapter_name, _chapter_buf))
                 _chapter_buf = []
@@ -188,22 +168,26 @@ def grab(postfix, reverse=False, skip=True, path='out_linovelib'):
         else:
             _skip = False
         _chapters.append((_skip, *data))
-    
+
     if not reverse:
         _chapters = reversed(_chapters)
 
     for _skip, chapter_name, chapter_pages in _chapters:
         epub_file = file_escape(f'{title} {chapter_name}')
-        if _skip and os.path.isfile(f'{path}/{epub_file}.epub'):
+        overwrite = os.path.isfile(f'{path}/{epub_file}.epub')
+        if _skip and overwrite:
             continue
         contents = []
         images = []
         img_count = 0
         cover_dst = None
-        
         next_url = None
-
-        for index, (page_name, first_page_link, none_count) in tqdm(enumerate(chapter_pages), desc=epub_file, total=len(chapter_pages)):
+        if overwrite:
+            desc = f'Update: {epub_file}'
+        else:
+            desc = f'New:    {epub_file}'
+        for index, (page_name, first_page_link, none_count) in tqdm(enumerate(chapter_pages), desc=desc,
+                                                                    total=len(chapter_pages)):
             if first_page_link is None:
                 first_page_link = next_url
             if first_page_link is None:
@@ -211,7 +195,6 @@ def grab(postfix, reverse=False, skip=True, path='out_linovelib'):
             page_content, image_tags, next_url = _get_page(first_page_link, encoding=encoding)
             page_id = f'page{index}'
             page_title = page_name
-            contents.append((page_id, page_title, page_content))
             for img in image_tags:
                 img_link = img.attrs['src']
                 img_file = f'temp/{file_escape(img_link)}'
@@ -226,21 +209,138 @@ def grab(postfix, reverse=False, skip=True, path='out_linovelib'):
                         raise Exception(f'Getting image failed: {img_link}')
                     with open(img_file, 'wb') as f:
                         f.write(img_content)
-                a.name = 'p'
-                a.attrs = {'style': 'text-indent:0em'}
                 img.attrs = {'src': 'images/' + img_dst}
                 img_count += 1
                 images.append((img_id, img_file, img_dst))
+            contents.append((page_id, page_title, ''.join(map(str, page_content))))
 
-        _epub = epub.Epub(title, author=None)
+        _epub = Epub(title, author=None)
         for id_, src, dst in images:
             _epub.add_image(id_, src, dst)
         for id_, page_title, page_content in contents:
             _epub.add_page(id_, page_title, page_content)
         if cover_dst is not None:
             _epub.add_cover(images[0][1], cover_dst)
-            _epub.add_cover_page('cover', '', epub.Page.cover(cover_dst, 'cover.html', _epub.metadata, ''))
+            _epub.add_cover_page('cover', '', Page.cover(cover_dst, 'cover.html', _epub.metadata, ''))
         _epub.generate(epub_file, remove=True, path=path)
 
-if __name__ == '__main__':
-    pass
+def search(title, page=1):
+    encoding = 'utf8'
+    quoted_title = urllib.parse.quote(title)
+    if not isinstance(page, int) or page < 1:
+        page = 1
+    #link = f'https://w.linovelib.com/S8/{quoted_title}_{page}.html'
+    link = f'https://w.linovelib.com/S8/?searchkey={quoted_title}&searchtype=all&page={page}'
+
+    page_response = requests.get(link, allow_redirects=False)
+    if page_response.is_redirect:
+        next_url = page_response.next.url
+        m = re.search(r'novel/([0-9]+).html', next_url)
+        if m:
+            book_id = int(m.group(1))
+            total_items = 1
+            current_page = 1
+            total_pages = 1
+
+            page_str = requests_get(next_url)
+            if page_str is None:
+                raise Exception(f'Getting book page failed: {link}')
+
+            page_content = page_str
+            page = BeautifulSoup(page_content.decode(encoding), 'html.parser')
+
+            book_info_tag = page.find('div', class_='book-detail-info')
+
+            title_tag = book_info_tag.find('h2', class_='book-title')
+            title = title_tag.text
+
+            author_tag = book_info_tag.find('div', class_='book-rand-a').find('span')
+            author = author_tag.text
+
+            cover_tag = page.find('div', id='bookDetailWrapper').find('img', class_='book-cover-blur')
+            cover_link = cover_tag.attrs['src']
+
+            desc_tag = page.find('section', id='bookSummary')
+            if desc_tag:
+                desc = desc_tag.text
+            else:
+                desc = ''
+
+            book_info = {
+                'id': book_id,
+                'title': title,
+                'author': author,
+                'description': desc,
+                'cover': cover_link,
+            }
+        else:
+            raise Exception(f'Failed to get book ID: {next_url}')
+        return {
+            'total': total_items,
+            'current_page': current_page,
+            'total_pages': total_pages,
+            'items': [book_info],
+        }
+
+    page_str = page_response.content
+    if page_str is None:
+        raise Exception(f'Getting search page failed: {link}')
+    page_content = page_str
+    page = BeautifulSoup(page_content.decode(encoding), 'html.parser')
+
+    total_items_tag = page.find('h3', class_='module-title')
+    total_items_text = total_items_tag.text
+    m = re.search(r'共有 *([0-9]+) *条记录', total_items_text)
+    if m:
+        total_items = int(m.group(1))
+    else:
+        total_items = None
+
+    current_page = None
+    total_pages = None
+    total_pages_tag = page.find('div', id='pagelink')
+    if total_pages_tag:
+        total_pages_text = total_pages_tag.find('span').text
+        m = re.search(r'第 *([0-9]+) */ *([0-9]+) *页', total_pages_text)
+        if m:
+            current_page, total_pages = int(m.group(1)), int(m.group(2))
+
+    all_items_tag = page.find('ol', class_='book-ol')
+    item_tags = all_items_tag.find_all('li', class_='book-li')
+
+    items = []
+    for item_tag in item_tags:
+        book_id_tag = item_tag.find('a', class_='book-layout')
+        book_id_text = book_id_tag.attrs['href']
+        m = re.search(r'novel/([0-9]+).html', book_id_text)
+        if m:
+            book_id = int(m.group(1))
+        else:
+            book_id = None
+        title_tag = item_tag.find('h4', class_='book-title')
+        title = title_tag.text
+        author_tag = item_tag.find('span', class_='book-author')
+        author_tag.find('title').clear()
+        author = author_tag.text
+        cover_tag = item_tag.find('img', class_='book-cover')
+        cover_link = cover_tag.attrs['src']
+        desc_tag = item_tag.find('p', class_='book-desc')
+        desc = desc_tag.text
+
+        item = {
+            'id': book_id,
+            'title': title,
+            'author': author,
+            'description': desc,
+            'cover': cover_link,
+        }
+        items.append(item)
+
+    return {
+        'total': total_items,
+        'current_page': current_page,
+        'total_pages': total_pages,
+        'items': items,
+    }
+
+__all__ = ['grab', 'search']

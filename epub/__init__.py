@@ -3,7 +3,7 @@ import datetime as _datetime
 import re as _re
 import shutil as _shutil
 import zipfile as _zipfile
-import uid as _uid
+from .utils import *
 
 _MEDIA_TYPE = {
     "load": "text/html",
@@ -776,7 +776,7 @@ class Metadata:
             DocItem('builder_version'): None
         }
         self.metadata = {
-            'dtb:uid': _uid.uuid(),
+            'dtb:uid': uuid(),
             'dtb:depth': 1,
             'dtb:totalPageCount': 0,
             'dtb:maxPageNumber': 0,
