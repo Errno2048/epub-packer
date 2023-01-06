@@ -7,7 +7,9 @@ from bs4 import BeautifulSoup
 
 _DEFAULT_ENCODING = 'UTF-8'
 
-def login(username, password):
+_current_login_cookies = {}
+
+def _login(username, password):
     link = 'https://w.linovelib.com/login.php?do=submit'
     payload = {
         'username': username,
@@ -16,8 +18,16 @@ def login(username, password):
         'act': 'login',
         'submit': '',
     }
-    res = requests.post(link, data=payload, files=[])
+    res = requests.post(link, data=payload, headers=HEADERS, files=[])
     return res.cookies.get_dict()
+
+def login(username, password):
+    res = _login(username, password)
+    _current_login_cookies.update(res)
+    return bool(res)
+
+def logout():
+    _current_login_cookies.clear()
 
 def _get_image_url(raw_link):
     parse_res = list(urllib.parse.urlparse(raw_link))
@@ -235,17 +245,24 @@ def grab(postfix, reverse=False, skip=True, path='out_linovelib', **kwargs):
             _epub.add_cover_page('cover', '', Page.cover(cover_dst, 'cover.html', _epub.metadata, ''))
         _epub.generate(epub_file, remove=True, path=path)
 
-def search(title, page=1, *, username=None, password=None, **kwargs):
+def search(title=None, page=1, **kwargs):
     encoding = _DEFAULT_ENCODING
-    quoted_title = urllib.parse.quote(title, encoding=encoding)
     if not isinstance(page, int) or page < 1:
         page = 1
-    #link = f'https://w.linovelib.com/S8/{quoted_title}_{page}.html'
-    link = f'https://w.linovelib.com/S8/?searchkey={quoted_title}&searchtype=all&page={page}'
+    _page = page
+
+    list_all = not title
+    if list_all:
+        link = f'https://w.linovelib.com/wenku/lastupdate_0_0_0_0_0_0_0_{page}_0.html'
+    else:
+        quoted_title = urllib.parse.quote(title, encoding=encoding)
+        #link = f'https://w.linovelib.com/S8/{quoted_title}_{page}.html'
+        link = f'https://w.linovelib.com/S8/?searchkey={quoted_title}&searchtype=all&page={page}'
 
     headers = HEADERS.copy()
-    if username and password:
-        login_cookies = login(username, password)
+    login_cookies = _current_login_cookies
+
+    if login_cookies:
         login_cookies_str = ''.join(map(lambda x: f'{x[0]}={x[1]};', login_cookies.items()))
         headers['Cookie'] = login_cookies_str
 
@@ -305,22 +322,38 @@ def search(title, page=1, *, username=None, password=None, **kwargs):
     page_content = page_str
     page = BeautifulSoup(page_content.decode(encoding), 'html.parser')
 
-    total_items_tag = page.find('h3', class_='module-title')
-    total_items_text = total_items_tag.text
-    m = re.search(r'共有 *([0-9]+) *条记录', total_items_text)
-    if m:
-        total_items = int(m.group(1))
-    else:
+    if list_all:
         total_items = None
+    else:
+        total_items_tag = page.find('h3', class_='module-title')
+        if total_items_tag is None:
+            return {
+                'total': 0,
+                'current_page': 1,
+                'total_pages': 1,
+                'items': [],
+            }
+        total_items_text = total_items_tag.text
+        m = re.search(r'共有 *([0-9]+) *条记录', total_items_text)
+        if m:
+            total_items = int(m.group(1))
+        else:
+            total_items = None
 
     current_page = None
     total_pages = None
     total_pages_tag = page.find('div', id='pagelink')
     if total_pages_tag:
-        total_pages_text = total_pages_tag.find('span').text
-        m = re.search(r'第 *([0-9]+) */ *([0-9]+) *页', total_pages_text)
-        if m:
-            current_page, total_pages = int(m.group(1)), int(m.group(2))
+        if list_all:
+            total_pages_tag_last = total_pages_tag.find('a', class_='last')
+            if total_pages_tag_last:
+                total_pages = int(total_pages_tag_last.text)
+            current_page = _page
+        else:
+            total_pages_text = total_pages_tag.find('span').text
+            m = re.search(r'第 *([0-9]+) */ *([0-9]+) *页', total_pages_text)
+            if m:
+                current_page, total_pages = int(m.group(1)), int(m.group(2))
 
     all_items_tag = page.find('ol', class_='book-ol')
     item_tags = all_items_tag.find_all('li', class_='book-li')
@@ -340,7 +373,7 @@ def search(title, page=1, *, username=None, password=None, **kwargs):
         author_tag.find('title').clear()
         author = author_tag.text
         cover_tag = item_tag.find('img', class_='book-cover')
-        cover_link = cover_tag.attrs['src']
+        cover_link = cover_tag.attrs['data-original']
         desc_tag = item_tag.find('p', class_='book-desc')
         desc = desc_tag.text
 

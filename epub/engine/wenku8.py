@@ -8,16 +8,27 @@ from bs4.element import Tag as _Tag
 
 _DEFAULT_ENCODING = 'GB18030'
 
-def login(username, password):
+_current_login_cookies = {}
+
+def _login(username, password):
     link = 'https://www.wenku8.net/login.php?do=submit'
     payload = {
         'username': username,
         'password': password,
         'usecookie': '0',
         'action': 'login',
+        'submit': '',
     }
-    res = requests.post(link, data=payload, files=[])
+    res = requests.post(link, data=payload, headers=HEADERS, files=[])
     return res.cookies.get_dict()
+
+def login(username, password):
+    res = _login(username, password)
+    _current_login_cookies.update(res)
+    return bool(res)
+
+def logout():
+    _current_login_cookies.clear()
 
 def grab(postfix, reverse=False, skip=True, path='out_wenku8', **kwargs):
     prefix = postfix // 1000
@@ -131,22 +142,31 @@ def grab(postfix, reverse=False, skip=True, path='out_wenku8', **kwargs):
             _epub.add_cover_page('cover', '', Page.cover(cover_dst, 'cover.html', _epub.metadata, ''))
         _epub.generate(epub_file, remove=True, path=path)
 
-def search(title, page=1, *, username=None, password=None, **kwargs):
+def search(title=None, page=1, **kwargs):
     encoding = _DEFAULT_ENCODING
-    quoted_title = urllib.parse.quote(title, encoding=encoding)
     if not isinstance(page, int) or page < 1:
         page = 1
-    link = f'https://www.wenku8.net/modules/article/search.php?searchtype=articlename&searchkey={quoted_title}&page={page}'
+    _page = page
+
+    list_all = not title
+    if list_all:
+        link = f'https://www.wenku8.net/modules/article/articlelist.php?page={page}'
+    else:
+        quoted_title = urllib.parse.quote(title, encoding=encoding)
+        link = f'https://www.wenku8.net/modules/article/search.php?searchtype=articlename&searchkey={quoted_title}&page={page}'
 
     headers = HEADERS.copy()
-    if username and password:
-        login_cookies = login(username, password)
+    login_cookies = _current_login_cookies
+
+    if login_cookies:
         login_cookies_str = ''.join(map(lambda x: f'{x[0]}={x[1]};', login_cookies.items()))
         headers['Cookie'] = login_cookies_str
 
     page_response = requests.get(link, allow_redirects=False, headers=headers)
     if page_response.is_redirect:
         next_url = page_response.next.url
+        if next_url.startswith('https://www.wenku8.net/login.php'):
+            raise Exception('Please login')
         m = re.search(r'book/([0-9]+).htm', next_url)
         if m:
             book_id = int(m.group(1))
